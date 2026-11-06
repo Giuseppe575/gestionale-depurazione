@@ -1,0 +1,31 @@
+:root {
+  --brand: #006064;
+  --brand-2: #00838f;
+  --monte: #1565c0;
+  --valle: #2e7d32;
+}
+body { background: #eef5f6; font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+
+.app-header { background: linear-gradient(90deg, var(--brand), var(--brand-2)); color: #fff; padding-top: .8rem; }
+.app-header .logo { height: 48px; width: auto; background: #fff; border-radius: .4rem; padding: 2px; }
+.app-header .company { font-size: 1.45rem; font-weight: 700; letter-spacing: .04em; line-height: 1.1; }
+.app-header .subtitle { font-size: .9rem; opacity: .9; }
+.app-header .doc-ref { background: rgba(0,0,0,.18); font-size: .72rem; padding: .3rem 0; margin-top: .7rem; }
+
+.btn-brand { background: var(--brand); color: #fff; font-weight: 600; }
+.btn-brand:hover, .btn-brand:focus { background: #004d40; color: #fff; }
+.btn-brand:disabled { background: #6c9a9c; color: #fff; }
+
+.section-title { color: var(--brand); font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+.bg-monte { background: var(--monte); color: #fff; font-weight: 600; }
+.bg-valle { background: var(--valle); color: #fff; font-weight: 600; }
+.border-monte { border-top: 4px solid var(--monte); }
+.border-valle { border-top: 4px solid var(--valle); }
+
+.lim { font-size: .72rem; color: #6c757d; font-weight: 400; }
+.is-over { border-color: #dc3545 !important; background: #fff1f2 !important; }
+
+dialog { max-width: 520px; width: calc(100% - 2rem); }
+dialog::backdrop { background: rgba(0,0,0,.45); }
+.badge-nc { background: #dc3545; }
+.badge-ok { background: #198754; }
