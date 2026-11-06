@@ -118,6 +118,7 @@ function doPost(e) {
       case 'changePassword': return json_(changePassword_(req));
       case 'submit':         return json_(submit_(req));
       case 'recent':         return json_(recent_(req));
+      case 'export':         return json_(export_(req));
       default:               return json_({ ok: false, error: 'Azione non supportata.' });
     }
   } catch (err) {
@@ -452,6 +453,17 @@ function recent_(req) {
     };
   });
   return { ok: true, rows: rows };
+}
+
+function export_(req) {
+  requireSession_(req.token, true);
+  const sh = getSheet_(CONFIG.SHEET_REGISTRO, HEADER_REGISTRO);
+  const last = sh.getLastRow();
+  const cols = HEADER_REGISTRO.length - 1; // esclude colonna hash tecnico
+  const headers = HEADER_REGISTRO.slice(0, cols);
+  if (last < 2) return { ok: true, headers: headers, rows: [] };
+  const rows = sh.getRange(2, 1, last - 1, cols).getDisplayValues();
+  return { ok: true, headers: headers, rows: rows };
 }
 
 function publicConfig_() {

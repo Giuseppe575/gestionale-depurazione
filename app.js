@@ -376,6 +376,30 @@
   }
   $('btnRefresh').addEventListener('click', loadRecent);
 
+  $('btnExport').addEventListener('click', async () => {
+    const btn = $('btnExport');
+    setBusy(btn, true, 'Download…');
+    try {
+      const r = await api('export');
+      const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+      const lines = [r.headers.map(esc).join(';')];
+      (r.rows || []).forEach((row) => lines.push(row.map(esc).join(';')));
+      // BOM UTF-8 + separatore ';' per apertura immediata in Microsoft Excel italiano
+      const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'REG-IMP-03_Autocontrollo_Pancrazio_' + todayISO() + '.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    } catch (err) {
+      showAlert(err.message);
+    } finally {
+      setBusy(btn, false);
+    }
+  });
+
   // ------------------------------------------------------------------ Installazione PWA (PC e Smartphone)
   let deferredInstallPrompt = null;
   const btnInstall = $('btnInstall');

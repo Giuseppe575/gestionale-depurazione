@@ -224,9 +224,12 @@
       <!-- Ultime registrazioni -->
       <div class="card shadow-sm mt-3">
         <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
             <h2 class="h6 section-title mb-0">Ultime registrazioni</h2>
-            <button type="button" class="btn btn-sm btn-outline-secondary" id="btnRefresh">Aggiorna</button>
+            <div class="d-flex gap-2">
+              <button type="button" class="btn btn-sm btn-outline-success" id="btnExport">⬇ Scarica Excel (CSV)</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="btnRefresh">Aggiorna</button>
+            </div>
           </div>
           <div class="table-responsive mt-2">
             <table class="table table-sm table-striped small mb-0">
