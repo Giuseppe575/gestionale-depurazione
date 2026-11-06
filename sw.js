@@ -4,7 +4,7 @@
  * e mantiene in cache l'interfaccia statica. Le chiamate API verso Google
  * Apps Script passano sempre direttamente in rete (nessun dato sensibile in cache).
  */
-const CACHE_NAME = 'pancrazio-depurazione-v2.2';
+const CACHE_NAME = 'pancrazio-depurazione-v2.3';
 const ASSETS = [
   './',
   './index.html',
