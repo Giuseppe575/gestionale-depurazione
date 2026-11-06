@@ -95,8 +95,24 @@ const HEADER_LOG = ['Data/ora', 'Username', 'Evento', 'Esito', 'Dettaglio'];
 // ENTRY POINT WEB APP
 // ----------------------------------------------------------------------------
 function doGet() {
-  // Nessun dato esposto in GET.
-  return json_({ ok: true, service: 'gestionale-depurazione', version: '2.1' });
+  // Al primo contatto si assicura che i 3 fogli esistano già formattati
+  try { ensureSheetsInitialized_(); } catch (e) { console.error(e); }
+  return json_({ ok: true, service: 'gestionale-depurazione', version: '2.3' });
+}
+
+function ensureSheetsInitialized_() {
+  const ss = getSpreadsheet_();
+  const reg = getSheet_(CONFIG.SHEET_REGISTRO, HEADER_REGISTRO);
+  const ops = getSheet_(CONFIG.SHEET_OPERATORI, HEADER_OPERATORI);
+  const log = getSheet_(CONFIG.SHEET_LOG, HEADER_LOG);
+  [reg, ops, log].forEach(function (sh) {
+    sh.setFrozenRows(1);
+    sh.getRange(1, 1, 1, sh.getLastColumn()).setFontWeight('bold').setBackground('#006064').setFontColor('#ffffff');
+  });
+  reg.getRange('G1:L1').setBackground('#1565c0');
+  reg.getRange('M1:R1').setBackground('#2e7d32');
+  try { ops.showSheet(); ops.hideColumns(5, 2); } catch (e) {}
+  ss.setSpreadsheetTimeZone(CONFIG.TIMEZONE);
 }
 
 function doPost(e) {
