@@ -1,6 +1,7 @@
 /*
  * Pancrazio S.p.A. – Gestionale depurazione
  * Frontend REG-IMP-03 – Autocontrollo settimanale MONTE / VALLE
+ * Installabile su PC e Smartphone (PWA) + abilitazione operatore in 2 passaggi.
  */
 (function () {
   'use strict';
@@ -11,12 +12,6 @@
 
   const CAMPI_NUM = ['monte_ph', 'monte_temp', 'monte_cod', 'monte_sed', 'monte_od',
                      'valle_ph', 'valle_temp', 'valle_cod', 'valle_cloro', 'valle_n_nitrico'];
-  const LABEL = {
-    monte_ph: 'pH', monte_temp: 'Temperatura (°C)', monte_odore: 'Odore', monte_cod: 'COD (mg/L O₂)',
-    monte_sed: 'Solidi sedimentabili fanghi (ml/L)', monte_od: 'Ossigeno disciolto (mg/L)',
-    valle_ph: 'pH', valle_temp: 'Temperatura (°C)', valle_odore: 'Odore', valle_cod: 'COD (mg/L O₂)',
-    valle_cloro: 'Cloro attivo libero (mg/L)', valle_n_nitrico: 'Azoto nitrico (mg/L N)'
-  };
 
   let session = null;       // { token, nome, mustChange, config }
   let inactivityTimer = null;
@@ -68,6 +63,17 @@
     if (session) $('userName').textContent = session.nome;
   }
 
+  function switchAuthTab(mode) {
+    hideAlert();
+    const isReg = mode === 'reg';
+    $('paneLogin').hidden = isReg;
+    $('paneReg').hidden = !isReg;
+    $('tabBtnLogin').classList.toggle('active', !isReg);
+    $('tabBtnReg').classList.toggle('active', isReg);
+  }
+  $('tabBtnLogin').addEventListener('click', () => switchAuthTab('login'));
+  $('tabBtnReg').addEventListener('click', () => switchAuthTab('reg'));
+
   function setBusy(btn, busy, text) {
     btn.disabled = busy;
     if (busy) { btn.dataset.txt = btn.textContent; btn.textContent = text || 'Attendere…'; }
@@ -97,6 +103,34 @@
     }, CFG.INACTIVITY_LOGOUT_MIN * 60000);
   }
   ['click', 'keydown', 'touchstart'].forEach((ev) => document.addEventListener(ev, resetInactivity, { passive: true }));
+
+  // ------------------------------------------------------------------ 1° Passaggio: Registrazione operatore
+  $('formRegister').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    hideAlert();
+    const nome = $('regNome').value.trim();
+    const u = $('regUser').value.trim().toLowerCase();
+    const pw = $('regPw').value;
+    const pw2 = $('regPw2').value;
+    if (!nome || !u || !pw) { showAlert('Compilare tutti i campi richiesti.'); return; }
+    if (pw !== pw2) { showAlert('Le due password non coincidono.'); return; }
+    if (pw.length < 8 || !/[A-Za-z]/.test(pw) || !/\d/.test(pw)) {
+      showAlert('La password deve avere almeno 8 caratteri, con lettere e numeri.'); return;
+    }
+    const btn = $('btnRegister');
+    setBusy(btn, true, 'Invio richiesta…');
+    try {
+      const r = await api('register', { nome: nome, username: u, password: pw });
+      $('formRegister').reset();
+      switchAuthTab('login');
+      $('username').value = u;
+      showAlert('✅ ' + r.message, 'success');
+    } catch (err) {
+      showAlert(err.message);
+    } finally {
+      setBusy(btn, false);
+    }
+  });
 
   // ------------------------------------------------------------------ Login / logout
   $('formLogin').addEventListener('submit', async (e) => {
@@ -301,7 +335,7 @@
       $('formAC').reset();
       $('formAC').classList.remove('was-validated');
       initForm();
-      showAlert('✅ Registrazione salvata (ID ' + r.id + ', ' + r.timestamp + ') – Esito valle: ' + r.esito,
+      showAlert('✅ Registrazione salvata nel Foglio Google (ID ' + r.id + ', ' + r.timestamp + ') – Esito valle: ' + r.esito,
         r.esito === 'CONFORME' ? 'success' : 'warning');
       loadRecent();
     } catch (err) {
@@ -342,11 +376,30 @@
   }
   $('btnRefresh').addEventListener('click', loadRecent);
 
-  // ------------------------------------------------------------------ Avvio
-  const logo = $('logo');
-  logo.addEventListener('load', () => { logo.hidden = false; });
-  logo.addEventListener('error', () => logo.remove());
+  // ------------------------------------------------------------------ Installazione PWA (PC e Smartphone)
+  let deferredInstallPrompt = null;
+  const btnInstall = $('btnInstall');
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    btnInstall.hidden = false;
+  });
+  btnInstall.addEventListener('click', async () => {
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    btnInstall.hidden = true;
+  });
+  window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    btnInstall.hidden = true;
+  });
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
 
+  // ------------------------------------------------------------------ Avvio
   try { session = JSON.parse(sessionStorage.getItem(SS_KEY) || 'null'); } catch (e) { session = null; }
   if (session && session.token) afterLogin(); else showView('login');
 })();

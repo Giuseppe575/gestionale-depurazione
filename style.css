@@ -12,6 +12,8 @@ body { background: #eef5f6; font-family: system-ui, -apple-system, "Segoe UI", R
 .app-header .subtitle { font-size: .9rem; opacity: .9; }
 .app-header .doc-ref { background: rgba(0,0,0,.18); font-size: .72rem; padding: .3rem 0; margin-top: .7rem; }
 
+.nav-pills .nav-link { color: var(--brand); font-weight: 600; font-size: .9rem; }
+.nav-pills .nav-link.active { background: var(--brand); color: #fff; }
 .btn-brand { background: var(--brand); color: #fff; font-weight: 600; }
 .btn-brand:hover, .btn-brand:focus { background: #004d40; color: #fff; }
 .btn-brand:disabled { background: #6c9a9c; color: #fff; }

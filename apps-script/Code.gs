@@ -1,7 +1,7 @@
 /**
  * ============================================================================
  *  GESTIONALE DEPURAZIONE – PANCRAZIO S.P.A.
- *  Backend Google Apps Script (API JSON) – v2.0
+ *  Backend Google Apps Script (API JSON) – v2.1
  *
  *  Registro: REG-IMP-03 – Registro autocontrollo settimanale AUA
  *            (analisi interne a MONTE e a VALLE dell'impianto)
@@ -9,6 +9,8 @@
  *            A.U.A. n. 1 del 21/01/2026
  *
  *  Funzioni:
+ *   - registrazione operatore in due passaggi (richiesta dall'app →
+ *     approvazione del titolare nel Foglio Google prima del primo accesso)
  *   - autenticazione operatori (username + password con hash salato e
  *     iterato, blocco dopo tentativi falliti, sessioni a scadenza)
  *   - registrazione parametri MONTE / VALLE con validazione lato server
@@ -81,7 +83,7 @@ const HEADER_REGISTRO = [
 ];
 
 const HEADER_OPERATORI = [
-  'Username', 'Nome e cognome', 'Ruolo', 'Attivo', 'Salt', 'Hash password',
+  'Username', 'Nome e cognome', 'Ruolo', 'Autorizzato (spunta per abilitare)', 'Salt', 'Hash password',
   'Cambio password obbligatorio', 'Tentativi falliti', 'Bloccato fino a',
   'Ultimo accesso', 'Creato il'
 ];
@@ -94,7 +96,7 @@ const HEADER_LOG = ['Data/ora', 'Username', 'Evento', 'Esito', 'Dettaglio'];
 // ----------------------------------------------------------------------------
 function doGet() {
   // Nessun dato esposto in GET.
-  return json_({ ok: true, service: 'gestionale-depurazione', version: '2.0' });
+  return json_({ ok: true, service: 'gestionale-depurazione', version: '2.1' });
 }
 
 function doPost(e) {
@@ -110,6 +112,7 @@ function doPost(e) {
 
   try {
     switch (String(req.action || '')) {
+      case 'register':       return json_(register_(req));
       case 'login':          return json_(login_(req));
       case 'logout':         return json_(logout_(req));
       case 'changePassword': return json_(changePassword_(req));
@@ -123,6 +126,61 @@ function doPost(e) {
     console.error(err && err.stack ? err.stack : err);
     return json_({ ok: false, error: 'Errore interno del server. Riprovare.' });
   }
+}
+
+// ----------------------------------------------------------------------------
+// REGISTRAZIONE OPERATORE (1° passaggio: richiesta → in attesa di approvazione)
+// ----------------------------------------------------------------------------
+function register_(req) {
+  const username = normUser_(req.username);
+  const nome = String(req.nome || '').trim();
+  const password = String(req.password || '');
+
+  if (!/^[a-z0-9._-]{3,40}$/.test(username)) {
+    throw userErr_('Username non valido (3–40 caratteri: lettere minuscole, numeri, punto, trattino; es. mario.rossi).');
+  }
+  if (nome.length < 3 || nome.length > 80) {
+    throw userErr_('Inserire Nome e Cognome (almeno 3 caratteri).');
+  }
+  const pwErr = passwordPolicyError_(password, username);
+  if (pwErr) throw userErr_(pwErr);
+
+  // Rate limit richieste di registrazione
+  const cache = CacheService.getScriptCache();
+  const rlKey = 'reg_rl';
+  const rl = Number(cache.get(rlKey) || 0);
+  if (rl >= 15) {
+    log_(username, 'REGISTRAZIONE UTENTE', 'RIFIUTATO', 'Troppi tentativi di registrazione');
+    throw userErr_('Troppe richieste ravvicinate. Riprovare più tardi.');
+  }
+  cache.put(rlKey, String(rl + 1), 15 * 60);
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    if (findOperatore_(username)) {
+      log_(username, 'REGISTRAZIONE UTENTE', 'RIFIUTATO', 'Username già esistente');
+      throw userErr_('Username già registrato o in attesa di autorizzazione.');
+    }
+    const salt = randomSalt_();
+    const sh = getSheet_(CONFIG.SHEET_OPERATORI, HEADER_OPERATORI);
+    sh.appendRow([
+      username, safeCell_(nome), 'operatore', false,
+      salt, hashPassword_(password, salt), false, 0, '', '',
+      Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss')
+    ]);
+    const last = sh.getLastRow();
+    try { sh.getRange(last, OP.ATTIVO + 1).insertCheckboxes(); } catch (e) { /* opzionale */ }
+    sh.getRange(last, 1, 1, 4).setBackground('#fff3cd');
+  } finally {
+    lock.releaseLock();
+  }
+
+  log_(username, 'REGISTRAZIONE UTENTE', 'IN ATTESA', 'Richiesta da ' + nome + ' – in attesa di autorizzazione nel foglio Operatori');
+  return {
+    ok: true,
+    message: 'Richiesta registrata! Ora il Responsabile deve autorizzarti nel Foglio Google (foglio "Operatori", spunta su Autorizzato). Dopo l\'autorizzazione potrai accedere con username e password.'
+  };
 }
 
 // ----------------------------------------------------------------------------
@@ -147,10 +205,10 @@ function login_(req) {
   const op = findOperatore_(username);
   const now = new Date();
 
-  if (!op || !isTrue_(op.row[OP.ATTIVO])) {
+  if (!op) {
     hashPassword_(password, 'dummy-salt-000000'); // tempo costante approssimato
     cache.put(rlKey, String(rl + 1), CONFIG.LOCKOUT_MIN * 60);
-    log_(username, 'LOGIN', 'FALLITO', op ? 'Operatore disattivato' : 'Username inesistente');
+    log_(username, 'LOGIN', 'FALLITO', 'Username inesistente');
     throw userErr_(GENERIC);
   }
 
@@ -174,6 +232,12 @@ function login_(req) {
     }
     cache.put(rlKey, String(rl + 1), CONFIG.LOCKOUT_MIN * 60);
     throw userErr_(GENERIC);
+  }
+
+  // Password corretta, ma verifica se il Responsabile ha dato l'autorizzazione nel foglio
+  if (!isTrue_(op.row[OP.ATTIVO])) {
+    log_(username, 'LOGIN', 'IN ATTESA', 'Accesso tentato prima dell\'autorizzazione del Responsabile');
+    throw userErr_('Account in attesa di autorizzazione (o disabilitato): il Responsabile deve attivare la spunta "Autorizzato" nel foglio Operatori.');
   }
 
   // Successo
@@ -401,7 +465,8 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('Gestionale depurazione')
     .addItem('1) Inizializza / proteggi fogli', 'setupFogli')
     .addSeparator()
-    .addItem('Nuovo operatore', 'menuNuovoOperatore')
+    .addItem('Autorizza operatore in attesa', 'menuAutorizzaOperatore')
+    .addItem('Nuovo operatore (crea da foglio)', 'menuNuovoOperatore')
     .addItem('Reimposta password operatore', 'menuResetPassword')
     .addItem('Attiva / disattiva operatore', 'menuToggleOperatore')
     .addItem('Sblocca operatore', 'menuSbloccaOperatore')
@@ -428,9 +493,37 @@ function setupFogli() {
   });
   reg.getRange('G1:L1').setBackground('#1565c0');
   reg.getRange('M1:R1').setBackground('#2e7d32');
-  ops.hideSheet();
+  // Nasconde le colonne tecniche (Salt/Hash) ma lascia visibile il foglio Operatori per spuntare "Autorizzato"
+  try { ops.showSheet(); ops.hideColumns(5, 2); } catch (e) { /* opzionale */ }
   ss.setSpreadsheetTimeZone(CONFIG.TIMEZONE);
-  SpreadsheetApp.getUi().alert('Fogli inizializzati e protetti.\nOra crea gli operatori dal menu "Gestionale depurazione → Nuovo operatore".');
+  SpreadsheetApp.getUi().alert(
+    'Fogli inizializzati e protetti.\n\n' +
+    'Quando un operatore invia la richiesta di registrazione dall\'app, compare nel foglio "Operatori" con sfondo giallo e "Autorizzato" = FALSO.\n' +
+    'Per abilitarlo: metti la spunta nella colonna D ("Autorizzato") oppure usa il menu "Gestionale depurazione → Autorizza operatore in attesa".'
+  );
+}
+
+function menuAutorizzaOperatore() {
+  const ui = SpreadsheetApp.getUi();
+  const sh = getSheet_(CONFIG.SHEET_OPERATORI, HEADER_OPERATORI);
+  const last = sh.getLastRow();
+  const inAttesa = [];
+  if (last >= 2) {
+    const data = sh.getRange(2, 1, last - 1, 4).getValues();
+    data.forEach(function (r) {
+      if (!isTrue_(r[OP.ATTIVO])) inAttesa.push(r[OP.USER] + ' (' + r[OP.NOME] + ')');
+    });
+  }
+  const elenco = inAttesa.length ? '\nIn attesa:\n- ' + inAttesa.join('\n- ') + '\n\n' : '\n(Nessun operatore attualmente in attesa)\n\n';
+  const u = ui.prompt('Autorizza operatore', elenco + 'Inserisci lo username da autorizzare:', ui.ButtonSet.OK_CANCEL);
+  if (u.getSelectedButton() !== ui.Button.OK) return;
+  const username = normUser_(u.getResponseText());
+  const op = findOperatore_(username);
+  if (!op) { ui.alert('Operatore non trovato.'); return; }
+  op.sheet.getRange(op.rowIndex, OP.ATTIVO + 1).setValue(true);
+  op.sheet.getRange(op.rowIndex, 1, 1, 4).setBackground('#d1e7dd');
+  log_(username, 'ADMIN', 'OK', 'Operatore autorizzato dal Responsabile');
+  ui.alert('Operatore "' + username + '" AUTORIZZATO.\nDa questo momento può accedere all\'app e registrare i parametri.');
 }
 
 function menuNuovoOperatore() {
@@ -584,7 +677,7 @@ function log_(username, evento, esito, dettaglio) {
 }
 
 function normUser_(u) { return String(u || '').trim().toLowerCase().substring(0, 40); }
-function isTrue_(v) { return v === true || String(v).toUpperCase() === 'TRUE' || String(v).toUpperCase() === 'VERO'; }
+function isTrue_(v) { return v === true || String(v).toUpperCase() === 'TRUE' || String(v).toUpperCase() === 'VERO' || String(v).toUpperCase() === 'SI' || String(v).toUpperCase() === 'SÌ' || String(v) === '1'; }
 function sessKey_(token) { return 'sess_' + sha256Hex_(token); }
 
 /** Evita l'iniezione di formule nei fogli (=, +, -, @ all'inizio). */
